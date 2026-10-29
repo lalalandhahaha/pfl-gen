@@ -29,7 +29,7 @@ class FedRep(Server):
             if i%self.eval_gap == 0:
                 print(f"\n-------------Round number: {i}-------------")
                 print("\nEvaluate personalized models")
-                self.evaluate()
+                self.evaluate(round_idx=i)
 
             for client in self.selected_clients:
                 client.train()

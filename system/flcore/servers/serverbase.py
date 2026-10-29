@@ -5,6 +5,7 @@ import h5py
 import copy
 import time
 import random
+import csv
 from utils.data_utils import read_client_data
 from utils.dlg import DLG
 
@@ -47,6 +48,11 @@ class Server(object):
         self.rs_test_acc = []
         self.rs_test_auc = []
         self.rs_train_loss = []
+        self.rs_test_loss = []
+        self.rs_gap = []
+        self.rs_round = []
+        self.test_loss = None
+        self._csv_started = False
 
         self.times = times
         self.eval_gap = args.eval_gap
@@ -182,6 +188,30 @@ class Server(object):
                 hf.create_dataset('rs_test_acc', data=self.rs_test_acc)
                 hf.create_dataset('rs_test_auc', data=self.rs_test_auc)
                 hf.create_dataset('rs_train_loss', data=self.rs_train_loss)
+                hf.create_dataset('rs_test_loss', data=self.rs_test_loss)
+                hf.create_dataset('rs_gap', data=self.rs_gap)
+                hf.create_dataset('rs_round', data=self.rs_round)
+
+    def save_round_results(self, round_idx, train_loss, test_loss, test_acc):
+        # Anchor CSV output to the repository, independent of the launch directory.
+        result_path = os.path.abspath(os.path.join(
+            os.path.dirname(__file__), '..', '..', '..', 'results'))
+        os.makedirs(result_path, exist_ok=True)
+        model_name = getattr(self.args, 'model_name', type(self.global_model).__name__)
+        seed = getattr(self.args, 'seed', 0)
+        name = (f'{self.dataset}_{model_name}_{self.algorithm}'
+                f'_local_epoch_{self.local_epochs}_seed{seed}')
+        if self.args.times > 1 or self.times != 0:
+            name += f'_run{self.times}'
+        file_path = os.path.join(result_path, name + '.csv')
+        mode = 'a' if self._csv_started else 'w'
+        with open(file_path, mode, newline='', encoding='utf-8') as output:
+            writer = csv.writer(output)
+            if not self._csv_started:
+                writer.writerow(['round', 'train_loss', 'test_loss', 'gap', 'test_acc'])
+            writer.writerow([round_idx, train_loss, test_loss,
+                             test_loss - train_loss, test_acc])
+        self._csv_started = True
 
     def save_item(self, item, item_name):
         if not os.path.exists(self.save_folder_name):
@@ -192,6 +222,7 @@ class Server(object):
         return torch.load(os.path.join(self.save_folder_name, "server_" + item_name + ".pt"))
 
     def test_metrics(self):
+        self.test_loss = None
         if self.eval_new_clients and self.num_new_clients > 0:
             self.fine_tuning_new_clients()
             return self.test_metrics_new_clients()
@@ -199,11 +230,21 @@ class Server(object):
         num_samples = []
         tot_correct = []
         tot_auc = []
+        weighted_test_losses = []
         for c in self.clients:
+            # Reset the cache so overrides cannot accidentally reuse an old loss.
+            c.test_loss = None
             ct, ns, auc = c.test_metrics()
             tot_correct.append(ct*1.0)
             tot_auc.append(auc*ns)
             num_samples.append(ns)
+            if c.test_loss is not None:
+                weighted_test_losses.append(c.test_loss * ns)
+
+        # Legacy client overrides may only supply accuracy and AUC.
+        if (len(weighted_test_losses) == len(num_samples)
+                and sum(num_samples) > 0):
+            self.test_loss = sum(weighted_test_losses) / sum(num_samples)
 
         ids = [c.id for c in self.clients]
 
@@ -224,14 +265,23 @@ class Server(object):
 
         return ids, num_samples, losses
 
-    # evaluate selected clients
-    def evaluate(self, acc=None, loss=None):
+    # Evaluate all clients; an explicit round enables incremental curve output.
+    def evaluate(self, acc=None, loss=None, round_idx=None):
         stats = self.test_metrics()
         stats_train = self.train_metrics()
 
         test_acc = sum(stats[2])*1.0 / sum(stats[1])
         test_auc = sum(stats[3])*1.0 / sum(stats[1])
         train_loss = sum(stats_train[2])*1.0 / sum(stats_train[1])
+        if round_idx is not None and not self.eval_new_clients:
+            if self.test_loss is None:
+                raise ValueError('Per-round CSV requires test loss from every client')
+            if self.rs_round and round_idx <= self.rs_round[-1]:
+                raise ValueError('Recorded round numbers must be strictly increasing')
+            self.save_round_results(round_idx, train_loss, self.test_loss, test_acc)
+            self.rs_round.append(round_idx)
+            self.rs_test_loss.append(self.test_loss)
+            self.rs_gap.append(self.test_loss - train_loss)
         accs = [a / n for a, n in zip(stats[2], stats[1])]
         aucs = [a / n for a, n in zip(stats[3], stats[1])]
         

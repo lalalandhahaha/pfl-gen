@@ -15,7 +15,6 @@ class Client(object):
     """
 
     def __init__(self, args, id, train_samples, test_samples, **kwargs):
-        torch.manual_seed(0)
         self.model = copy.deepcopy(args.model)
         self.algorithm = args.algorithm
         self.dataset = args.dataset
@@ -26,6 +25,7 @@ class Client(object):
         self.num_classes = args.num_classes
         self.train_samples = train_samples
         self.test_samples = test_samples
+        self.test_loss = None
         self.batch_size = args.batch_size
         self.learning_rate = args.local_learning_rate
         self.local_epochs = args.local_epochs
@@ -85,6 +85,7 @@ class Client(object):
 
         test_acc = 0
         test_num = 0
+        test_loss_sum = 0.0
         y_prob = []
         y_true = []
         
@@ -99,6 +100,7 @@ class Client(object):
 
                 test_acc += (torch.sum(torch.argmax(output, dim=1) == y)).item()
                 test_num += y.shape[0]
+                test_loss_sum += self.loss(output, y).item() * y.shape[0]
 
                 y_prob.append(output.detach().cpu().numpy())
                 nc = self.num_classes
@@ -116,6 +118,7 @@ class Client(object):
         y_true = np.concatenate(y_true, axis=0)
 
         auc = metrics.roc_auc_score(y_true, y_prob, average='micro')
+        self.test_loss = test_loss_sum / test_num
         
         return test_acc, test_num, auc
 

@@ -8,6 +8,7 @@ import warnings
 import numpy as np
 import torchvision
 import logging
+import random
 
 from flcore.servers.serveravg import FedAvg
 from flcore.servers.serverpFedMe import pFedMe
@@ -65,7 +66,14 @@ logger = logging.getLogger()
 logger.setLevel(logging.ERROR)
 
 warnings.simplefilter("ignore")
-torch.manual_seed(0)
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def run(args):
@@ -73,6 +81,7 @@ def run(args):
     time_list = []
     reporter = MemReporter()
     model_str = args.model
+    args.model_name = model_str
 
     for i in range(args.prev, args.times):
         print(f"\n============= Running time: {i}th =============")
@@ -417,6 +426,8 @@ if __name__ == "__main__":
                         help="Previous Running times")
     parser.add_argument('-t', "--times", type=int, default=1,
                         help="Running times")
+    parser.add_argument('-seed', '--seed', type=int, default=0,
+                        help="Random seed")
     parser.add_argument('-eg', "--eval_gap", type=int, default=1,
                         help="Rounds gap for evaluation")
     parser.add_argument('-sfn', "--save_folder_name", type=str, default='items')
@@ -502,6 +513,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.device_id
+    set_seed(args.seed)
 
     if args.device == "cuda" and not torch.cuda.is_available():
         print("\ncuda is not avaiable.\n")
