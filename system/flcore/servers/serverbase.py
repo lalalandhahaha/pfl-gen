@@ -212,6 +212,7 @@ class Server(object):
             writer.writerow([round_idx, train_loss, test_loss,
                              test_loss - train_loss, test_acc])
         self._csv_started = True
+        print(file_path)
 
     def save_item(self, item, item_name):
         if not os.path.exists(self.save_folder_name):

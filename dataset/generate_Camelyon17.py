@@ -16,11 +16,11 @@ dir_path = "Camelyon17/"
 # modify the values of max_num to assign exact data amount to each client and class
 # 10000000 means using the full dataset
 max_num = [
-    (10000000, 10000000), 
-    (10000000, 10000000), 
-    (10000000, 10000000), 
-    (10000000, 10000000), 
-    (10000000, 10000000), 
+    (500,500), 
+    (500,500),
+    (500,500), 
+    (500,500), 
+    (500,500), 
 ]
 cur_num = [
     [0, 0], 
